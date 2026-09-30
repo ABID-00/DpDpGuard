@@ -1,0 +1,7 @@
+{
+    "agentId": "AGT-001",
+    "agentToken": "CHANGE_THIS_TOKEN",
+    "backendUrl": "http://localhost:5000",
+    "agentVersion": "1.0.0",
+    "collectionIntervalSeconds": 300
+}
