@@ -1,50 +1,7 @@
 {
-    "agentId": "AGENT-001",
-    "agentVersion": "1.1.0",
-    "backendUrl": "https://api.example.com",
-    "agentToken": "YOUR_SECURE_TOKEN_HERE",
-    "collectionIntervalSeconds": 300,
-    "dpdp": {
-        "discovery": {
-            "enabled": true,
-            "scan_interval_minutes": 60,
-            "paths": [
-                "C:\\Users",
-                "D:\\CompanyData"
-            ],
-            "excluded_paths": [
-                "C:\\Windows",
-                "C:\\Program Files",
-                "C:\\Program Files (x86)",
-                "C:\\ProgramData"
-            ],
-            "max_file_size_mb": 10,
-            "file_extensions": [
-                ".txt",
-                ".csv",
-                ".json",
-                ".md"
-            ]
-        },
-        "classification": {
-            "enabled": true
-        },
-        "access_control": {
-            "enabled": true
-        },
-        "data_movement": {
-            "enabled": true
-        },
-        "audit": {
-            "enabled": true,
-            "log_path": "logs/audit.jsonl"
-        },
-        "retention": {
-            "enabled": true,
-            "retention_years": 5
-        },
-        "incident_detection": {
-            "enabled": true
-        }
-    }
+    "agentId": "AGT-001",
+    "apiKey": "282b587611046a8e426d7c45ad663246337c5ab49cfcc641e98ea54b506710a1",
+    "backendUrl": "http://localhost:5000",
+    "agentVersion": "1.0.0",
+    "collectionIntervalSeconds": 60
 }

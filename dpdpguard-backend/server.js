@@ -45,6 +45,7 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/assets', require('./routes/assets'));
 app.use('/api/agents', require('./routes/agents'));
+app.use('/api/scoring', require('./routes/scoring'));
 app.use('/api/assessments', require('./routes/assessments'));
 app.use('/api/controls', require('./routes/controls'));
 app.use('/api/gaps', require('./routes/gaps'));

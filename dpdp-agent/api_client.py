@@ -1,57 +1,54 @@
-import requests
 import json
 import os
+import platform
+
+import requests
+
+
+CONFIG_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "config.json"
+)
 
 
 def load_config():
-    config_path = os.path.join(
-        os.path.dirname(__file__),
-        "config.json"
-    )
-
-    with open(config_path, "r") as file:
+    with open(CONFIG_PATH, "r") as file:
         return json.load(file)
 
 
-def send_evidence(evidence):
+def build_payload(evidence):
+    # Only these sections leave the PC. The collector's other sections
+    # (personal_data, access_control, retention, readiness) stay local.
+    return {
+        "machine": evidence.get("machine", {}),
+        "securityChecks": evidence.get("security", {}),
+        "collectedAt": evidence.get("collectedAt"),
+    }
 
+
+def send_evidence(evidence):
     config = load_config()
 
-    backend_url = config["backendUrl"]
-    agent_id = config["agentId"]
-    agent_token = config["agentToken"]
+    if not config.get("apiKey"):
+        raise RuntimeError(
+            "No apiKey in config.json. Run register_agent.py first."
+        )
 
-    url = backend_url + "/api/agents/evidence"
+    url = config["backendUrl"].rstrip("/") + "/api/agents/evidence"
 
     headers = {
-        "Authorization": f"Bearer {agent_token}",
-        "Content-Type": "application/json"
+        "x-api-key": config["apiKey"],
+        "Content-Type": "application/json",
     }
 
     payload = {
-        "agentId": agent_id,
-        "agentVersion": config["agentVersion"],
-        "evidence": evidence
+        "agentId": config["agentId"],
+        "os": platform.system(),
+        "osVersion": platform.version(),
+        "evidence": build_payload(evidence),
     }
 
-    try:
+    response = requests.post(url, json=payload, headers=headers, timeout=10)
+    response.raise_for_status()
 
-        response = requests.post(
-            url,
-            json=payload,
-            headers=headers,
-            timeout=10
-        )
-
-        response.raise_for_status()
-
-        print("Evidence sent successfully.")
-
-        return response.json()
-
-    except requests.exceptions.RequestException as error:
-
-        print("Failed to send evidence:")
-        print(error)
-
-        return None
+    return response.json()
