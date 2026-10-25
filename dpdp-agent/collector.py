@@ -5,6 +5,11 @@ import subprocess
 import json
 from datetime import datetime, timezone
 
+# Graceful import for the new DPDP Discovery module
+try:
+    from modules.discovery import run_discovery
+except ImportError:
+    run_discovery = None
 
 # ============================================================
 # Helper: Run PowerShell
@@ -31,9 +36,7 @@ def run_powershell(command):
             return None
 
         output = result.stdout.strip()
-
         return output if output else None
-
     except Exception:
         return None
 
@@ -45,7 +48,6 @@ def run_powershell(command):
 def parse_json(output):
     if not output:
         return None
-
     try:
         return json.loads(output)
     except Exception:
@@ -57,7 +59,6 @@ def parse_json(output):
 # ============================================================
 
 def check_bitlocker():
-
     command = r"""
     Get-BitLockerVolume |
     Select-Object MountPoint,
@@ -67,7 +68,6 @@ def check_bitlocker():
                   EncryptionPercentage |
     ConvertTo-Json -Compress
     """
-
     output = run_powershell(command)
     data = parse_json(output)
 
@@ -83,8 +83,6 @@ def check_bitlocker():
         data = [data]
 
     volumes = []
-
-    # Only evaluate fixed disks that actually exist.
     fixed_drives = []
 
     try:
@@ -97,34 +95,11 @@ def check_bitlocker():
         pass
 
     for volume in data:
-
-        mount_point = str(
-            volume.get("MountPoint") or ""
-        ).upper()
-
-        volume_status = str(
-            volume.get("VolumeStatus") or ""
-        )
-
-        protection_status = str(
-            volume.get("ProtectionStatus") or ""
-        )
-
-        encryption_method = volume.get(
-            "EncryptionMethod"
-        )
-
-        encryption_percentage = volume.get(
-            "EncryptionPercentage"
-        )
-
-        # Normal PowerShell values:
-        # VolumeStatus      = FullyEncrypted
-        # ProtectionStatus  = On
-        #
-        # Some Windows versions / APIs may return
-        # numeric values. Do NOT blindly treat numeric 0
-        # as encrypted.
+        mount_point = str(volume.get("MountPoint") or "").upper()
+        volume_status = str(volume.get("VolumeStatus") or "")
+        protection_status = str(volume.get("ProtectionStatus") or "")
+        encryption_method = volume.get("EncryptionMethod")
+        encryption_percentage = volume.get("EncryptionPercentage")
 
         volume_status_normalized = volume_status.lower()
         protection_status_normalized = protection_status.lower()
@@ -133,16 +108,11 @@ def check_bitlocker():
             volume_status_normalized == "fullyencrypted"
             or volume_status_normalized == "fully encrypted"
         )
-
         protection_on = (
             protection_status_normalized == "on"
             or protection_status_normalized == "1"
         )
-
-        encrypted = (
-            fully_encrypted
-            and protection_on
-        )
+        encrypted = (fully_encrypted and protection_on)
 
         volumes.append({
             "mountPoint": mount_point,
@@ -161,17 +131,10 @@ def check_bitlocker():
             "message": "No BitLocker volumes detected"
         }
 
-    all_encrypted = all(
-        volume["encrypted"]
-        for volume in volumes
-    )
+    all_encrypted = all(volume["encrypted"] for volume in volumes)
 
     return {
-        "status": (
-            "Enabled"
-            if all_encrypted
-            else "Needs Review"
-        ),
+        "status": "Enabled" if all_encrypted else "Needs Review",
         "encrypted": all_encrypted,
         "volumes": volumes
     }
@@ -182,7 +145,6 @@ def check_bitlocker():
 # ============================================================
 
 def check_firewall():
-
     command = r"""
     Get-NetFirewallProfile |
     Select-Object Name,
@@ -191,7 +153,6 @@ def check_firewall():
                   DefaultOutboundAction |
     ConvertTo-Json -Compress
     """
-
     output = run_powershell(command)
     data = parse_json(output)
 
@@ -207,20 +168,13 @@ def check_firewall():
         data = [data]
 
     profiles = []
-
     for profile in data:
-
-        enabled = bool(
-            profile.get("Enabled", False)
-        )
-
+        enabled = bool(profile.get("Enabled", False))
         profiles.append({
             "name": profile.get("Name"),
             "enabled": enabled,
-            "defaultInboundAction":
-                profile.get("DefaultInboundAction"),
-            "defaultOutboundAction":
-                profile.get("DefaultOutboundAction")
+            "defaultInboundAction": profile.get("DefaultInboundAction"),
+            "defaultOutboundAction": profile.get("DefaultOutboundAction")
         })
 
     if not profiles:
@@ -231,17 +185,10 @@ def check_firewall():
             "message": "No firewall profiles detected"
         }
 
-    firewall_enabled = all(
-        profile["enabled"]
-        for profile in profiles
-    )
+    firewall_enabled = all(profile["enabled"] for profile in profiles)
 
     return {
-        "status": (
-            "Enabled"
-            if firewall_enabled
-            else "Needs Review"
-        ),
+        "status": "Enabled" if firewall_enabled else "Needs Review",
         "enabled": firewall_enabled,
         "profiles": profiles
     }
@@ -252,11 +199,6 @@ def check_firewall():
 # ============================================================
 
 def check_defender():
-
-    # --------------------------------------------------------
-    # Registered antivirus products
-    # --------------------------------------------------------
-
     antivirus_command = r"""
     Get-CimInstance -Namespace root/SecurityCenter2 `
         -ClassName AntiVirusProduct |
@@ -265,41 +207,19 @@ def check_defender():
                   pathToSignedProductExe |
     ConvertTo-Json -Compress
     """
-
-    antivirus_output = run_powershell(
-        antivirus_command
-    )
-
+    antivirus_output = run_powershell(antivirus_command)
     antivirus_products = []
-
-    antivirus_data = parse_json(
-        antivirus_output
-    )
+    antivirus_data = parse_json(antivirus_output)
 
     if antivirus_data:
-
         if isinstance(antivirus_data, dict):
             antivirus_data = [antivirus_data]
-
         for product in antivirus_data:
-
-            name = product.get(
-                "displayName"
-            )
-
             antivirus_products.append({
-                "name": name,
-                "productState": product.get(
-                    "productState"
-                ),
-                "path": product.get(
-                    "pathToSignedProductExe"
-                )
+                "name": product.get("displayName"),
+                "productState": product.get("productState"),
+                "path": product.get("pathToSignedProductExe")
             })
-
-    # --------------------------------------------------------
-    # Microsoft Defender status
-    # --------------------------------------------------------
 
     defender_command = r"""
     try {
@@ -318,203 +238,65 @@ def check_defender():
         Write-Output "DEFENDER_UNAVAILABLE"
     }
     """
-
-    defender_output = run_powershell(
-        defender_command
-    )
-
+    defender_output = run_powershell(defender_command)
     defender_data = None
 
-    if (
-        defender_output
-        and
-        defender_output != "DEFENDER_UNAVAILABLE"
-    ):
-        defender_data = parse_json(
-            defender_output
-        )
-
-    # --------------------------------------------------------
-    # Microsoft Defender state
-    # --------------------------------------------------------
+    if defender_output and defender_output != "DEFENDER_UNAVAILABLE":
+        defender_data = parse_json(defender_output)
 
     defender_antivirus_enabled = False
     defender_realtime_enabled = False
     defender_antispyware_enabled = False
 
     if defender_data:
-
-        defender_antivirus_enabled = bool(
-            defender_data.get(
-                "AntivirusEnabled",
-                False
-            )
-        )
-
-        defender_realtime_enabled = bool(
-            defender_data.get(
-                "RealTimeProtectionEnabled",
-                False
-            )
-        )
-
-        defender_antispyware_enabled = bool(
-            defender_data.get(
-                "AntispywareEnabled",
-                False
-            )
-        )
+        defender_antivirus_enabled = bool(defender_data.get("AntivirusEnabled", False))
+        defender_realtime_enabled = bool(defender_data.get("RealTimeProtectionEnabled", False))
+        defender_antispyware_enabled = bool(defender_data.get("AntispywareEnabled", False))
 
     defender_active = (
-        defender_antivirus_enabled
-        and
-        defender_realtime_enabled
-        and
+        defender_antivirus_enabled and
+        defender_realtime_enabled and
         defender_antispyware_enabled
     )
 
-    # --------------------------------------------------------
-    # Detect third-party antivirus
-    # --------------------------------------------------------
-
     third_party_products = []
-
     for product in antivirus_products:
+        name = str(product.get("name") or "").lower()
+        if not name: continue
+        if not ("microsoft defender" in name or "windows defender" in name):
+            third_party_products.append(product)
 
-        name = str(
-            product.get("name") or ""
-        ).lower()
-
-        if not name:
-            continue
-
-        microsoft_product = (
-            "microsoft defender" in name
-            or
-            "windows defender" in name
-        )
-
-        if not microsoft_product:
-            third_party_products.append(
-                product
-            )
-
-    third_party_detected = (
-        len(third_party_products) > 0
-    )
-
-    # --------------------------------------------------------
-    # Determine overall protection
-    # --------------------------------------------------------
+    third_party_detected = (len(third_party_products) > 0)
 
     if defender_active:
-
         status = "Microsoft Defender Active"
-
         protection_available = True
-
     elif third_party_detected:
-
         status = "Third-Party Antivirus Detected"
-
         protection_available = True
-
     elif defender_data is None:
-
         status = "Unknown"
-
         protection_available = None
-
     else:
-
         status = "No Active Antivirus Detected"
-
         protection_available = False
 
     return {
-
         "status": status,
-
-        "protectionAvailable":
-            protection_available,
-
+        "protectionAvailable": protection_available,
         "microsoftDefender": {
-
-            "available":
-                defender_data is not None,
-
-            "antivirusEnabled":
-                (
-                    defender_antivirus_enabled
-                    if defender_data
-                    else None
-                ),
-
-            "realTimeProtectionEnabled":
-                (
-                    defender_realtime_enabled
-                    if defender_data
-                    else None
-                ),
-
-            "antispywareEnabled":
-                (
-                    defender_antispyware_enabled
-                    if defender_data
-                    else None
-                ),
-
-            "behaviorMonitorEnabled":
-                (
-                    bool(
-                        defender_data.get(
-                            "BehaviorMonitorEnabled",
-                            False
-                        )
-                    )
-                    if defender_data
-                    else None
-                ),
-
-            "networkInspectionEnabled":
-                (
-                    bool(
-                        defender_data.get(
-                            "NISEnabled",
-                            False
-                        )
-                    )
-                    if defender_data
-                    else None
-                ),
-
-            "quickScanAge":
-                (
-                    defender_data.get(
-                        "QuickScanAge"
-                    )
-                    if defender_data
-                    else None
-                ),
-
-            "fullScanAge":
-                (
-                    defender_data.get(
-                        "FullScanAge"
-                    )
-                    if defender_data
-                    else None
-                )
+            "available": defender_data is not None,
+            "antivirusEnabled": defender_antivirus_enabled if defender_data else None,
+            "realTimeProtectionEnabled": defender_realtime_enabled if defender_data else None,
+            "antispywareEnabled": defender_antispyware_enabled if defender_data else None,
+            "behaviorMonitorEnabled": bool(defender_data.get("BehaviorMonitorEnabled", False)) if defender_data else None,
+            "networkInspectionEnabled": bool(defender_data.get("NISEnabled", False)) if defender_data else None,
+            "quickScanAge": defender_data.get("QuickScanAge") if defender_data else None,
+            "fullScanAge": defender_data.get("FullScanAge") if defender_data else None
         },
-
-        "antivirusProducts":
-            antivirus_products,
-
-        "thirdPartyAntivirusDetected":
-            third_party_detected,
-
-        "thirdPartyProducts":
-            third_party_products
+        "antivirusProducts": antivirus_products,
+        "thirdPartyAntivirusDetected": third_party_detected,
+        "thirdPartyProducts": third_party_products
     }
 
 
@@ -523,54 +305,24 @@ def check_defender():
 # ============================================================
 
 def check_windows_update():
-
-    # --------------------------------------------------------
-    # Windows Update service
-    # --------------------------------------------------------
-
     service_command = r"""
     Get-Service -Name wuauserv |
     Select-Object Status,StartType |
     ConvertTo-Json -Compress
     """
-
-    service_output = run_powershell(
-        service_command
-    )
-
-    service_data = parse_json(
-        service_output
-    )
+    service_output = run_powershell(service_command)
+    service_data = parse_json(service_output)
 
     service_running = False
-
     if service_data:
-
-        service_running = (
-            str(
-                service_data.get(
-                    "Status",
-                    ""
-                )
-            ).lower()
-            == "running"
-        )
+        service_running = (str(service_data.get("Status", "")).lower() == "running")
 
     if service_data is None:
-
         service_status = "Unknown"
-
     elif service_running:
-
         service_status = "Running"
-
     else:
-
         service_status = "Stopped"
-
-    # --------------------------------------------------------
-    # Latest installed hotfix
-    # --------------------------------------------------------
 
     update_command = r"""
     Get-HotFix |
@@ -584,46 +336,18 @@ def check_windows_update():
         Description |
     ConvertTo-Json -Compress
     """
-
-    update_output = run_powershell(
-        update_command
-    )
-
-    latest_update = parse_json(
-        update_output
-    )
+    update_output = run_powershell(update_command)
+    latest_update = parse_json(update_output)
 
     return {
-
-        # This is service state only.
-        # It is NOT the overall patch status.
         "status": service_status,
-
         "service": {
-
-            "running":
-                service_running,
-
-            "status":
-                (
-                    service_data.get("Status")
-                    if service_data
-                    else None
-                ),
-
-            "startType":
-                (
-                    service_data.get("StartType")
-                    if service_data
-                    else None
-                )
+            "running": service_running,
+            "status": service_data.get("Status") if service_data else None,
+            "startType": service_data.get("StartType") if service_data else None
         },
-
-        "latestInstalledUpdate":
-            latest_update,
-
-        "patchEvidenceAvailable":
-            latest_update is not None
+        "latestInstalledUpdate": latest_update,
+        "patchEvidenceAvailable": latest_update is not None
     }
 
 
@@ -632,34 +356,17 @@ def check_windows_update():
 # ============================================================
 
 def check_password_policy():
-
-    command = r"""
-    net accounts
-    """
-
+    command = r"net accounts"
     output = run_powershell(command)
 
     if not output:
-
-        return {
-            "status": "Unknown",
-            "message": "Unable to query password policy"
-        }
+        return {"status": "Unknown", "message": "Unable to query password policy"}
 
     policy = {}
-
     for line in output.splitlines():
-
         line = line.strip()
-
-        if ":" not in line:
-            continue
-
-        key, value = line.split(
-            ":",
-            1
-        )
-
+        if ":" not in line: continue
+        key, value = line.split(":", 1)
         policy[key.strip()] = value.strip()
 
     minimum_password_length = None
@@ -670,69 +377,23 @@ def check_password_policy():
     lockout_observation_window = None
 
     for key, value in policy.items():
-
         key_lower = key.lower()
-
-        if (
-            "minimum password length"
-            in key_lower
-        ):
-            minimum_password_length = value
-
-        elif (
-            "maximum password age"
-            in key_lower
-        ):
-            maximum_password_age = value
-
-        elif (
-            "minimum password age"
-            in key_lower
-        ):
-            minimum_password_age = value
-
-        elif (
-            "lockout threshold"
-            in key_lower
-        ):
-            lockout_threshold = value
-
-        elif (
-            "lockout duration"
-            in key_lower
-        ):
-            lockout_duration = value
-
-        elif (
-            "lockout observation window"
-            in key_lower
-        ):
-            lockout_observation_window = value
+        if "minimum password length" in key_lower: minimum_password_length = value
+        elif "maximum password age" in key_lower: maximum_password_age = value
+        elif "minimum password age" in key_lower: minimum_password_age = value
+        elif "lockout threshold" in key_lower: lockout_threshold = value
+        elif "lockout duration" in key_lower: lockout_duration = value
+        elif "lockout observation window" in key_lower: lockout_observation_window = value
 
     return {
-
         "status": "Collected",
-
-        "minimumPasswordLength":
-            minimum_password_length,
-
-        "maximumPasswordAge":
-            maximum_password_age,
-
-        "minimumPasswordAge":
-            minimum_password_age,
-
-        "accountLockoutThreshold":
-            lockout_threshold,
-
-        "lockoutDuration":
-            lockout_duration,
-
-        "lockoutObservationWindow":
-            lockout_observation_window,
-
-        "rawPolicy":
-            policy
+        "minimumPasswordLength": minimum_password_length,
+        "maximumPasswordAge": maximum_password_age,
+        "minimumPasswordAge": minimum_password_age,
+        "accountLockoutThreshold": lockout_threshold,
+        "lockoutDuration": lockout_duration,
+        "lockoutObservationWindow": lockout_observation_window,
+        "rawPolicy": policy
     }
 
 
@@ -741,207 +402,77 @@ def check_password_policy():
 # ============================================================
 
 def check_screen_lock():
-
-    # --------------------------------------------------------
-    # Get interactive user
-    # --------------------------------------------------------
-
-    user_command = r"""
-    (Get-CimInstance Win32_ComputerSystem).UserName
-    """
-
-    username = run_powershell(
-        user_command
-    )
+    user_command = r"(Get-CimInstance Win32_ComputerSystem).UserName"
+    username = run_powershell(user_command)
 
     if not username:
-
-        return {
-            "status": "Unknown",
-            "message":
-                "No interactive user currently logged in"
-        }
+        return {"status": "Unknown", "message": "No interactive user currently logged in"}
 
     username = username.strip()
 
-    # --------------------------------------------------------
-    # Get SID directly from the account name
-    # --------------------------------------------------------
-
     sid_command = r"""
     $username = (Get-CimInstance Win32_ComputerSystem).UserName
-
     try {
         $account = New-Object System.Security.Principal.NTAccount($username)
-
-        $sid = $account.Translate(
-            [System.Security.Principal.SecurityIdentifier]
-        ).Value
-
+        $sid =$account.Translate([System.Security.Principal.SecurityIdentifier]).Value
         Write-Output $sid
     }
     catch {
         Write-Output "SID_LOOKUP_FAILED"
     }
     """
+    sid_output = run_powershell(sid_command)
 
-    sid_output = run_powershell(
-        sid_command
-    )
-
-    if (
-        not sid_output
-        or
-        sid_output == "SID_LOOKUP_FAILED"
-    ):
-
-        return {
-            "status": "Unknown",
-            "username": username,
-            "message":
-                "Unable to determine user SID"
-        }
+    if not sid_output or sid_output == "SID_LOOKUP_FAILED":
+        return {"status": "Unknown", "username": username, "message": "Unable to determine user SID"}
 
     sid = sid_output.strip()
-
-    # --------------------------------------------------------
-    # Read registry
-    # --------------------------------------------------------
-
     registry_command = f"""
     $path = 'Registry::HKEY_USERS\\{sid}\\Control Panel\\Desktop'
-
     if (Test-Path $path) {{
-
-        $desktop = Get-ItemProperty $path
-
+        $desktop = Get-ItemProperty$path
         [PSCustomObject]@{{
-
-            ScreenSaverActive =
-                $desktop.ScreenSaveActive
-
-            ScreenSaverTimeout =
-                $desktop.ScreenSaveTimeOut
-
-            PasswordProtect =
-                $desktop.ScreenSaverIsSecure
-
-        }} |
-        ConvertTo-Json -Compress
-
+            ScreenSaverActive = $desktop.ScreenSaveActive
+            ScreenSaverTimeout = $desktop.ScreenSaveTimeOut
+            PasswordProtect = $desktop.ScreenSaverIsSecure
+        }} | ConvertTo-Json -Compress
     }} else {{
-
         Write-Output "REGISTRY_NOT_FOUND"
-
     }}
     """
+    output = run_powershell(registry_command)
 
-    output = run_powershell(
-        registry_command
-    )
-
-    if (
-        not output
-        or
-        output == "REGISTRY_NOT_FOUND"
-    ):
-
-        return {
-            "status": "Unknown",
-            "username": username,
-            "message":
-                "Unable to read user's screen-lock settings"
-        }
+    if not output or output == "REGISTRY_NOT_FOUND":
+        return {"status": "Unknown", "username": username, "message": "Unable to read user's screen-lock settings"}
 
     data = parse_json(output)
-
     if data is None:
+        return {"status": "Unknown", "username": username, "message": "Invalid screen-lock data"}
 
-        return {
-            "status": "Unknown",
-            "username": username,
-            "message":
-                "Invalid screen-lock data"
-        }
-
-    # --------------------------------------------------------
-    # Normalize registry values
-    # --------------------------------------------------------
-
-    screen_saver_active = (
-        str(
-            data.get(
-                "ScreenSaverActive",
-                ""
-            )
-        ).strip()
-        == "1"
-    )
-
-    password_protected = (
-        str(
-            data.get(
-                "PasswordProtect",
-                ""
-            )
-        ).strip()
-        == "1"
-    )
-
-    timeout_raw = data.get(
-        "ScreenSaverTimeout"
-    )
-
+    screen_saver_active = (str(data.get("ScreenSaverActive", "")).strip() == "1")
+    password_protected = (str(data.get("PasswordProtect", "")).strip() == "1")
+    timeout_raw = data.get("ScreenSaverTimeout")
     timeout_seconds = None
 
     try:
-
-        timeout_seconds = int(
-            timeout_raw
-        )
-
+        timeout_seconds = int(timeout_raw)
     except (TypeError, ValueError):
         timeout_seconds = None
 
     screen_lock_enabled = (
-        screen_saver_active
-        and
-        password_protected
-        and
-        timeout_seconds is not None
-        and
+        screen_saver_active and
+        password_protected and
+        timeout_seconds is not None and
         timeout_seconds > 0
     )
 
     return {
-
-        "status": (
-            "Enabled"
-            if screen_lock_enabled
-            else "Needs Review"
-        ),
-
-        "username":
-            username,
-
-        "screenSaverEnabled":
-            screen_saver_active,
-
-        "passwordProtected":
-            password_protected,
-
-        "timeoutSeconds":
-            timeout_seconds,
-
-        "timeoutMinutes":
-            (
-                round(
-                    timeout_seconds / 60,
-                    2
-                )
-                if timeout_seconds is not None
-                else None
-            )
+        "status": "Enabled" if screen_lock_enabled else "Needs Review",
+        "username": username,
+        "screenSaverEnabled": screen_saver_active,
+        "passwordProtected": password_protected,
+        "timeoutSeconds": timeout_seconds,
+        "timeoutMinutes": round(timeout_seconds / 60, 2) if timeout_seconds is not None else None
     }
 
 
@@ -950,97 +481,100 @@ def check_screen_lock():
 # ============================================================
 
 def collect_machine_info():
-
     try:
         disk = psutil.disk_usage("/")
     except Exception:
         disk = None
 
     return {
-
-        "hostname":
-            socket.gethostname(),
-
-        "os":
-            platform.system(),
-
-        "osVersion":
-            platform.version(),
-
-        "machine":
-            platform.machine(),
-
-        "processor":
-            platform.processor(),
-
-        "cpuCount":
-            psutil.cpu_count(),
-
-        "memoryGB":
-            round(
-                psutil.virtual_memory().total
-                / (1024 ** 3),
-                2
-            ),
-
-        "diskTotalGB":
-            (
-                round(
-                    disk.total / (1024 ** 3),
-                    2
-                )
-                if disk
-                else None
-            ),
-
-        "diskFreeGB":
-            (
-                round(
-                    disk.free / (1024 ** 3),
-                    2
-                )
-                if disk
-                else None
-            )
+        "hostname": socket.gethostname(),
+        "os": platform.system(),
+        "osVersion": platform.version(),
+        "machine": platform.machine(),
+        "processor": platform.processor(),
+        "cpuCount": psutil.cpu_count(),
+        "memoryGB": round(psutil.virtual_memory().total / (1024 ** 3), 2),
+        "diskTotalGB": round(disk.total / (1024 ** 3), 2) if disk else None,
+        "diskFreeGB": round(disk.free / (1024 ** 3), 2) if disk else None
     }
 
 
 # ============================================================
-# 8. Main Evidence Collection
+# NEW: DPDP Readiness Calculation
 # ============================================================
 
-def collect_evidence():
+def calculate_readiness(discovery_assets, security_checks):
+    """Calculates DPDP Technical Assurance based purely on measurable evidence."""
+    readiness = {
+        "Personal Data Discovery": "PASS",
+        "Access Control": "PASS",
+        "Security Safeguards": "PASS",
+        "Retention": "PASS"
+    }
 
+    if not discovery_assets:
+        readiness["Personal Data Discovery"] = "NOT_ASSESSED"
+
+    for asset in discovery_assets:
+        if asset.get("access_finding") == "EXCESSIVE_ACCESS":
+            readiness["Access Control"] = "WARNING"
+        if asset.get("retention_finding") == "RETENTION_REVIEW_REQUIRED":
+            readiness["Retention"] = "WARNING"
+
+    if not security_checks.get("bitlocker", {}).get("encrypted"):
+        readiness["Security Safeguards"] = "FAIL"
+    if not security_checks.get("windowsDefender", {}).get("protectionAvailable"):
+        readiness["Security Safeguards"] = "FAIL"
+
+    return readiness
+
+
+# ============================================================
+# 8. Unified Evidence Collection
+# ============================================================
+
+def collect_evidence(config=None):
+    if config is None:
+        config = {}
+
+    # 1. Collect Existing Security Context[cite: 1]
+    security_checks = {
+        "bitlocker": check_bitlocker(),
+        "firewall": check_firewall(),
+        "windowsDefender": check_defender(),
+        "windowsUpdate": check_windows_update(),
+        "passwordPolicy": check_password_policy(),
+        "screenLock": check_screen_lock()
+    }
+
+    # 2. Collect DPDP Discovery Data
+    discovery_assets = []
+    if run_discovery and config.get("dpdp", {}).get("discovery", {}).get("enabled", False):
+        try:
+            discovery_assets = run_discovery(config)
+        except Exception as e:
+            print(f"Discovery module error: {e}")
+
+    # 3. Process Secondary Findings
+    access_control_findings = [a for a in discovery_assets if a.get("access_finding") not in ("OK", None)]
+    retention_findings = [a for a in discovery_assets if a.get("retention_finding") not in ("OK", None)]
+
+    # 4. Return the new Unified DPDP Evidence Model
     return {
-
-        "machine":
-            collect_machine_info(),
-
-        "securityChecks": {
-
-            "bitlocker":
-                check_bitlocker(),
-
-            "firewall":
-                check_firewall(),
-
-            "windowsDefender":
-                check_defender(),
-
-            "windowsUpdate":
-                check_windows_update(),
-
-            "passwordPolicy":
-                check_password_policy(),
-
-            "screenLock":
-                check_screen_lock()
+        "machine": collect_machine_info(),
+        "personal_data": {
+            "assets": discovery_assets,
+            "classifications": [] # Handled internally by assets in discovery module
         },
-
-        "collectedAt":
-            datetime.now(
-                timezone.utc
-            ).isoformat()
+        "access_control": {
+            "findings": access_control_findings
+        },
+        "retention": {
+            "findings": retention_findings
+        },
+        "security": security_checks,
+        "readiness": calculate_readiness(discovery_assets, security_checks),
+        "collectedAt": datetime.now(timezone.utc).isoformat()
     }
 
 
@@ -1049,11 +583,11 @@ def collect_evidence():
 # ============================================================
 
 if __name__ == "__main__":
+    from api_client import load_config
+    test_config = {}
+    try:
+        test_config = load_config()
+    except Exception:
+        print("Using empty config for test.")
 
-    print(
-        json.dumps(
-            collect_evidence(),
-            indent=4,
-            default=str
-        )
-    )
+    print(json.dumps(collect_evidence(test_config), indent=4, default=str))
