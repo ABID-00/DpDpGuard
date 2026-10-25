@@ -43,6 +43,11 @@ const assetSchema = new mongoose.Schema({
     type: String,
     enum: ['Encryption', 'Access Control', 'Logging', 'Monitoring', 'Backup']
   }],
+
+    machine: { type: mongoose.Schema.Types.Mixed, default: {} },
+  securityChecks: { type: mongoose.Schema.Types.Mixed, default: {} },
+  collectedAt: Date,
+  
   relatedControls: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Control'

@@ -30,53 +30,43 @@ exports.getAllAgents = async (req, res, next) => {
 exports.registerAgent = async (req, res, next) => {
   try {
     const { agentId, hostname, assetName, assetType, registrationKey, os, osVersion } = req.body;
-    const org = await Organization.findById(req.organization);
 
-    if (!org) {
-      return res.status(404).json({
-        success: false,
-        error: 'Organization not found'
-      });
-    }
-
-    // Verify registration key
-    if (registrationKey !== org.agentRegistrationKey) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid registration key'
-      });
-    }
-
-    // Check if agent already exists
-    const existingAgent = await Agent.findOne({ agentId });
-    if (existingAgent) {
+    if (!agentId || !hostname || !registrationKey) {
       return res.status(400).json({
         success: false,
-        error: 'Agent ID already registered'
+        error: 'agentId, hostname and registrationKey are required'
       });
     }
 
-    // Create or link asset
-    let asset = await Asset.findOne({ name: hostname, organization: req.organization });
+    // Find the organization by its registration key (no login needed)
+    const org = await Organization.findOne({ agentRegistrationKey: registrationKey });
+    if (!org) {
+      return res.status(401).json({ success: false, error: 'Invalid registration key' });
+    }
 
+    const existingAgent = await Agent.findOne({ agentId });
+    if (existingAgent) {
+      return res.status(400).json({ success: false, error: 'Agent ID already registered' });
+    }
+
+    let asset = await Asset.findOne({ name: hostname, organization: org._id });
     if (!asset) {
       const assetId = `AST-${uuidv4().substring(0, 8).toUpperCase()}`;
       asset = await Asset.create({
         assetId,
         name: assetName || hostname,
-        type: assetType || 'Server',
-        organization: req.organization,
+        type: assetType || 'PC',
+        organization: org._id,
         os,
         osVersion
       });
     }
 
-    // Create agent
     const apiKey = crypto.randomBytes(32).toString('hex');
     const agent = await Agent.create({
       agentId,
       hostname,
-      organization: req.organization,
+      organization: org._id,
       asset: asset._id,
       apiKey,
       status: 'Offline',
@@ -90,9 +80,7 @@ exports.registerAgent = async (req, res, next) => {
       data: {
         agentId: agent.agentId,
         apiKey: agent.apiKey,
-        organizationId: req.organization.toString(),
-        assetId: asset._id.toString(),
-        nextCheckInAfter: agent.evidenceFrequency // seconds
+        assetId: asset._id.toString()
       }
     });
   } catch (error) {
@@ -141,21 +129,16 @@ exports.submitEvidence = async (req, res, next) => {
     await agent.save();
 
     // Update asset
+        // Update asset with the agent's collected checks
     if (agent.asset) {
       const asset = await Asset.findById(agent.asset);
       if (asset) {
         asset.lastCheckIn = new Date();
-        asset.evidence = evidence && Array.isArray(evidence) ? evidence : [];
+        asset.machine = evidence?.machine || {};
+                asset.securityChecks = evidence?.securityChecks || evidence?.security || {};
+        asset.collectedAt = evidence?.collectedAt ? new Date(evidence.collectedAt) : new Date();
         if (os) asset.os = os;
         if (osVersion) asset.osVersion = osVersion;
-
-        // Determine assurance status based on evidence count
-        if (evidence && evidence.length >= 4) {
-          asset.assuranceStatus = 'Evidence Verified';
-        } else if (evidence && evidence.length > 0) {
-          asset.assuranceStatus = 'Needs Review';
-        }
-
         await asset.save();
       }
     }
